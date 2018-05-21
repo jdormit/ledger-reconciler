@@ -9,19 +9,29 @@
        (csv/read-csv)
        (drop 4)
        (map (fn [row]
-              (let [date (nth row 1)
-                    description (nth row 3)
-                    debit (nth row 4)
-                    credit (nth row 5)]
+              (let [date (row 1)
+                    description (row 3)
+                    debit (row 4)
+                    credit (row 5)]
                 (if (not (string/blank? debit))
                   {:date date :description description :amount debit}
                   {:date date :description description :amount credit}))))))
 
+(defn parse-chase-csv [filename]
+  (->> (slurp filename)
+       (csv/read-csv)
+       (drop 1)
+       (map (fn [row]
+              (let [date (row 1)
+                    description (row 3)
+                    amount (row 4)]
+                {:date date :description description :amount amount})))))
+
 (defn parse-ledger-row [row]
   (let [row-vec (string/split row #"\s\s+")]
-    {:date (subs (nth row-vec 0) 0 9)
-     :description (subs (nth row-vec 0) 10)
-     :amount (subs (nth row-vec 2) 1)}))
+    {:date (subs (row-vec 0) 0 9)
+     :description (subs (row-vec 0) 10)
+     :amount (subs (row-vec 2) 1)}))
 
 (defn parse-ledger-output [period account]
   (->> (sh "ledger" "-w" "-p" period "reg" account)
@@ -51,18 +61,22 @@
 (defn format-item [item]
   (format "%-15s %-10s %-20s" (:date item) (:amount item) (:description item)))
 
+(def parse-fns {"dcu" parse-dcu-csv
+                "chase" parse-chase-csv})
+
 (defn -main
   [& args]
-  (let [[period account filename] args
-        dcu-record (parse-dcu-csv filename)
+  (let [[period account type filename] args
+        parse-fn (parse-fns type)
+        bank-record (parse-fn filename)
         ledger-record (parse-ledger-output period account)
-        [dcu-unmatched ledger-unmatched] (compare-records
-                                          (reverse dcu-record)
+        [bank-unmatched ledger-unmatched] (compare-records
+                                          (reverse bank-record)
                                           (reverse ledger-record)
                                           '() '())]
-    (if (> (+ (count dcu-unmatched) (count ledger-unmatched)) 0)
+    (if (> (+ (count bank-unmatched) (count ledger-unmatched)) 0)
       (do (println "Unmatched bank transactions:")
-          (doseq [t dcu-unmatched] (println (format-item t)))
+          (doseq [t bank-unmatched] (println (format-item t)))
           (print "\n")
           (println "Unmatched Ledger transactions:")
           (doseq [t ledger-unmatched] (println (format-item t)))
