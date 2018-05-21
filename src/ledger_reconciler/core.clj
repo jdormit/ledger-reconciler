@@ -56,7 +56,10 @@
   (let [[period account filename] args
         dcu-record (parse-dcu-csv filename)
         ledger-record (parse-ledger-output period account)
-        [dcu-unmatched ledger-unmatched] (compare-records dcu-record ledger-record '() '())]
+        [dcu-unmatched ledger-unmatched] (compare-records
+                                          (reverse dcu-record)
+                                          (reverse ledger-record)
+                                          '() '())]
     (if (> (+ (count dcu-unmatched) (count ledger-unmatched)) 0)
       (do (println "Unmatched bank transactions:")
           (doseq [t dcu-unmatched] (println (format-item t)))
