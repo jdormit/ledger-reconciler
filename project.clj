@@ -6,5 +6,6 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [org.clojure/data.csv "0.1.4"]]
   :main ^:skip-aot ledger-reconciler.core
+  :uberjar-name "ledger-reconciler.jar"
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})
