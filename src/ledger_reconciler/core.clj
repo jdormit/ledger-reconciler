@@ -4,28 +4,44 @@
             [clojure.java.shell :refer [sh]])
   (:gen-class))
 
-(defn parse-dcu-csv [filename]
+(defn nth-or [pred v & xs]
+  (when xs
+    (if-let [r (get v (first xs))]
+      (if (pred r) r (apply nth-or pred v (rest xs)))
+      (apply nth-or pred v (rest xs)))))
+
+(defn to-seq [x]
+  (if (coll? x) (seq x) (seq (list x))))
+
+(defn parse-bank-csv [& {:keys [filename
+                                date
+                                description
+                                amount
+                                header-rows]
+                         :or {header-rows 1}}]
   (->> (slurp filename)
        (csv/read-csv)
-       (drop 4)
+       (drop header-rows)
        (map (fn [row]
-              (let [date (row 1)
-                    description (row 3)
-                    debit (row 4)
-                    credit (row 5)]
-                (if (not (string/blank? debit))
-                  {:date date :description description :amount debit}
-                  {:date date :description description :amount credit}))))))
+              (let [row-nth-or (partial nth-or
+                                        #(not (string/blank? %))
+                                        row)]
+                {:date (apply row-nth-or (to-seq date))
+                 :description (apply row-nth-or (to-seq description))
+                 :amount (apply row-nth-or (to-seq amount))})))))
+
+(defn parse-dcu-csv [filename]
+  (parse-bank-csv :filename filename
+                  :date 1
+                  :description 3
+                  :amount [4 5]
+                  :header-rows 4))
 
 (defn parse-chase-csv [filename]
-  (->> (slurp filename)
-       (csv/read-csv)
-       (drop 1)
-       (map (fn [row]
-              (let [date (row 1)
-                    description (row 3)
-                    amount (row 4)]
-                {:date date :description description :amount amount})))))
+  (parse-bank-csv :filename filename
+                  :date 1
+                  :description 3
+                  :amount 4))
 
 (defn parse-ledger-row [row]
   (let [row-vec (string/split row #"\s\s+")]
@@ -35,10 +51,10 @@
 
 (defn parse-ledger-output [period account]
   (->> (sh "ledger" "-w" "-p" period "reg" account)
-      (:out)
-      (#(string/split % #"\n"))
-      (map parse-ledger-row)
-      (reverse)))
+       (:out)
+       (#(string/split % #"\n"))
+       (map parse-ledger-row)
+       (reverse)))
 
 (defn remove-one [pred coll]
   (let [[f r] (split-with #(not (pred %)) coll)]
@@ -71,9 +87,9 @@
         bank-record (parse-fn filename)
         ledger-record (parse-ledger-output period account)
         [bank-unmatched ledger-unmatched] (compare-records
-                                          (reverse bank-record)
-                                          (reverse ledger-record)
-                                          '() '())]
+                                           (reverse bank-record)
+                                           (reverse ledger-record)
+                                           '() '())]
     (if (> (+ (count bank-unmatched) (count ledger-unmatched)) 0)
       (do (println "Unmatched bank transactions:")
           (doseq [t bank-unmatched] (println (format-item t)))
