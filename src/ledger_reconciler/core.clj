@@ -1,7 +1,8 @@
 (ns ledger-reconciler.core
   (:require [clojure.string :as string]
             [clojure.data.csv :as csv]
-            [clojure.java.shell :refer [sh]])
+            [clojure.java.shell :refer [sh]]
+            [clojure.tools.cli :as cli])
   (:gen-class))
 
 (defn nth-or [pred v & xs]
@@ -80,21 +81,36 @@
 (def parse-fns {"dcu" parse-dcu-csv
                 "chase" parse-chase-csv})
 
+(def cli-options
+  [["-p" "--period PERIOD" "Ledger period expression"]
+   ["-a" "--account ACCOUNT" "Ledger account expression"]
+   ["-t" "--type TYPE" "Type of bank account as configured in ~/.ledgerreconciler.edn"]])
+
+(defn validate-args
+  [args]
+  (let [{:keys [options arguments summary errors]} (cli/parse-opts args cli-options)]
+   (if errors
+     {:error (string/join \newline errors)}
+     (assoc options :filename (first arguments)))))
+
 (defn -main
   [& args]
-  (let [[period account type filename] args
-        parse-fn (parse-fns type)
-        bank-record (parse-fn filename)
-        ledger-record (parse-ledger-output period account)
-        [bank-unmatched ledger-unmatched] (compare-records
-                                           (reverse bank-record)
-                                           (reverse ledger-record)
-                                           '() '())]
-    (if (> (+ (count bank-unmatched) (count ledger-unmatched)) 0)
-      (do (println "Unmatched bank transactions:")
-          (doseq [t bank-unmatched] (println (format-item t)))
-          (print "\n")
-          (println "Unmatched Ledger transactions:")
-          (doseq [t ledger-unmatched] (println (format-item t)))
-          (System/exit 0))
-      (println "No discrepancies found"))))
+  (let [{:keys [period account type filename error]} (validate-args args)]
+    (if error
+      (do (println error)
+          (System/exit 1))
+      (let [parse-fn (parse-fns type)
+            bank-record (parse-fn filename)
+            ledger-record (parse-ledger-output period account)
+            [bank-unmatched ledger-unmatched] (compare-records
+                                               (reverse bank-record)
+                                               (reverse ledger-record)
+                                               '() '())]
+        (if (> (+ (count bank-unmatched) (count ledger-unmatched)) 0)
+          (do (println "Unmatched bank transactions:")
+              (doseq [t bank-unmatched] (println (format-item t)))
+              (print "\n")
+              (println "Unmatched Ledger transactions:")
+              (doseq [t ledger-unmatched] (println (format-item t)))
+              (System/exit 0))
+          (println "No discrepancies found"))))))
