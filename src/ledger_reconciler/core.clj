@@ -2,7 +2,8 @@
   (:require [clojure.string :as string]
             [clojure.data.csv :as csv]
             [clojure.java.shell :refer [sh]]
-            [clojure.tools.cli :as cli])
+            [clojure.tools.cli :as cli]
+            [clojure.edn :as edn])
   (:gen-class))
 
 (defn nth-or [pred v & xs]
@@ -30,19 +31,6 @@
                 {:date (apply row-nth-or (to-seq date))
                  :description (apply row-nth-or (to-seq description))
                  :amount (apply row-nth-or (to-seq amount))})))))
-
-(defn parse-dcu-csv [filename]
-  (parse-bank-csv :filename filename
-                  :date 1
-                  :description 3
-                  :amount [4 5]
-                  :header-rows 4))
-
-(defn parse-chase-csv [filename]
-  (parse-bank-csv :filename filename
-                  :date 1
-                  :description 3
-                  :amount 4))
 
 (defn parse-ledger-row [row]
   (let [row-vec (string/split row #"\s\s+")]
@@ -84,7 +72,11 @@
 (def cli-options
   [["-p" "--period PERIOD" "Ledger period expression"]
    ["-a" "--account ACCOUNT" "Ledger account expression"]
-   ["-t" "--type TYPE" "Type of bank account as configured in ~/.ledgerreconciler.edn"]])
+   ["-t" "--type TYPE" "Type of bank account as configured in init file"]
+   ["-i" "--init-file FILE" "Path to init file"
+    :default (str (System/getProperty "user.home")
+                  (java.io.File/separator)
+                  ".ledgerreconciler.edn")]])
 
 (defn validate-args
   [args]
@@ -93,24 +85,36 @@
      {:error (string/join \newline errors)}
      (assoc options :filename (first arguments)))))
 
+(defn make-parse-fn
+  [config-file type]
+  (let [config (slurp config-file)
+        {:keys [date description amount header-rows]
+         :or {header-rows 1}}
+        ((keyword type) (edn/read-string config))]
+    (partial parse-bank-csv
+             :date date
+             :description description
+             :amount amount
+             :header-rows header-rows)))
+
 (defn -main
   [& args]
-  (let [{:keys [period account type filename error]} (validate-args args)]
+  (let [{:keys [period account type filename init-file error]} (validate-args args)]
     (if error
       (do (println error)
           (System/exit 1))
-      (let [parse-fn (parse-fns type)
-            bank-record (parse-fn filename)
+      (let [parse-fn (make-parse-fn init-file type)
+            bank-record (parse-fn :filename filename)
             ledger-record (parse-ledger-output period account)
             [bank-unmatched ledger-unmatched] (compare-records
                                                (reverse bank-record)
                                                (reverse ledger-record)
                                                '() '())]
         (if (> (+ (count bank-unmatched) (count ledger-unmatched)) 0)
-          (do (println "Unmatched bank transactions:")
-              (doseq [t bank-unmatched] (println (format-item t)))
-              (print "\n")
-              (println "Unmatched Ledger transactions:")
-              (doseq [t ledger-unmatched] (println (format-item t)))
-              (System/exit 0))
-          (println "No discrepancies found"))))))
+          (doseq [unmatched [["bank" bank-unmatched] ["Ledger" ledger-unmatched]]]
+            (when (> (count (unmatched 1)) 0)
+              (do (println (str "Unmatched " (unmatched 0) " transactions:"))
+                  (doseq [t (unmatched 1)] (println (format-item t)))
+                  (print "\n"))))
+          (println "No discrepencies found"))
+        (System/exit 0)))))
