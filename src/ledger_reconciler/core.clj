@@ -66,9 +66,6 @@
 (defn format-item [item]
   (format "%-15s %-10s %-20s" (:date item) (:amount item) (:description item)))
 
-(def parse-fns {"dcu" parse-dcu-csv
-                "chase" parse-chase-csv})
-
 (def cli-options
   [["-p" "--period PERIOD" "Ledger period expression"]
    ["-a" "--account ACCOUNT" "Ledger account expression"]
