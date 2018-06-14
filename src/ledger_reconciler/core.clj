@@ -22,6 +22,7 @@
                                 header-rows]
                          :or {header-rows 1}}]
   (->> (slurp filename)
+       (#(string/replace % #"#" ""))
        (csv/read-csv)
        (drop header-rows)
        (map (fn [row]
